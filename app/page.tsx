@@ -1,3 +1,5 @@
+"use client"
+
 import { Sidebar } from "@/components/sidebar"
 import { UploadZone } from "@/components/upload-zone"
 import { FeedbackPanel } from "@/components/feedback-panel"
