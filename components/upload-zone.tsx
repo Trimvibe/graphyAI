@@ -9,7 +9,7 @@ import { Progress } from "@/components/ui/progress"
 import { cn } from "@/lib/utils"
 
 interface UploadZoneProps {
-  onAnalyze: (file: File) => Promise<void>
+  onAnalyze: (file: File, designId?: string) => Promise<void>
 }
 
 type UploadState = "idle" | "selected" | "uploading" | "analyzing" | "error"
@@ -42,7 +42,7 @@ export function UploadZone({ onAnalyze }: UploadZoneProps) {
     const extension = "." + file.name.split(".").pop()?.toLowerCase()
     const isValidType =
       ACCEPTED_TYPES.includes(file.type) || ACCEPTED_EXTENSIONS.includes(extension)
-    const isValidSize = file.size <= 25 * 1024 * 1024
+    const isValidSize = file.size <= 10 * 1024 * 1024
 
     if (!isValidType) {
       setError("Please upload a PNG, JPG, or PDF file")
@@ -50,7 +50,7 @@ export function UploadZone({ onAnalyze }: UploadZoneProps) {
       return false
     }
     if (!isValidSize) {
-      setError("File size must be less than 25MB")
+      setError("File size must be less than 10MB")
       setState("error")
       return false
     }
@@ -103,35 +103,48 @@ export function UploadZone({ onAnalyze }: UploadZoneProps) {
     setProgress(0)
     setError(null)
 
-    // Simulate 2s upload with animated progress
-    const duration = 2000
-    const interval = 50
-    const steps = duration / interval
-    let currentStep = 0
-
-    const progressInterval = setInterval(() => {
-      currentStep++
-      const newProgress = Math.min((currentStep / steps) * 100, 100)
-      setProgress(newProgress)
-
-      if (currentStep >= steps) {
-        clearInterval(progressInterval)
-      }
-    }, interval)
-
-    // Wait for the simulated upload to complete
-    await new Promise((resolve) => setTimeout(resolve, duration))
-    clearInterval(progressInterval)
-    setProgress(100)
-
-    // Transition to analyzing state
-    setState("analyzing")
-
     try {
-      await onAnalyze(selectedFile.file)
-    } catch {
-      setError("Upload failed. Please try again.")
+      // Create FormData to send the file to the Next.js API route
+      const formData = new FormData()
+      formData.append('file', selectedFile.file)
+
+      // Optional: Since there's no native fetch progress handler without XHR,
+      // we'll run a fake fast progress up to 90% while the fetch is waiting.
+      const progressInterval = setInterval(() => {
+        setProgress(prev => {
+          if (prev >= 90) {
+            clearInterval(progressInterval)
+            return 90
+          }
+          return prev + 10
+        })
+      }, 300)
+
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      })
+
+      clearInterval(progressInterval)
+      setProgress(100)
+      
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to upload photo')
+      }
+
+      // Upload successful, shift to analyzing state
+      setState("analyzing")
+
+      // Pass the actual file and the returned database designId so 
+      // the parent can start polling or continue flow
+      await onAnalyze(selectedFile.file, data.design_id)
+      
+    } catch (err: any) {
+      setError(err.message || "Upload failed. Please try again.")
       setState("error")
+      setProgress(0)
     }
   }
 
@@ -223,7 +236,7 @@ export function UploadZone({ onAnalyze }: UploadZoneProps) {
                   files.
                 </p>
                 <div className="absolute bottom-4 right-4 text-xs text-muted-foreground font-mono">
-                  MAX SIZE: 25MB
+                  MAX SIZE: 10MB
                 </div>
               </>
             )}
