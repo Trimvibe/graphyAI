@@ -1,20 +1,21 @@
-import { FileUpload } from '@/components/file-upload'
+import { Sidebar } from "@/components/sidebar"
+import { UploadZone } from "@/components/upload-zone"
+import { FeedbackPanel } from "@/components/feedback-panel"
+
+// Placeholder async function for design analysis
+async function analyzeDesign(file: File): Promise<void> {
+  // Simulate API call delay
+  await new Promise((resolve) => setTimeout(resolve, 1500))
+  console.log("Analyzing design:", file.name)
+  // In a real app, this would upload the file and trigger AI analysis
+}
 
 export default function Page() {
   return (
-    <main className="min-h-screen flex flex-col items-center justify-center p-6 bg-background">
-      <div className="w-full max-w-md space-y-6">
-        <div className="text-center space-y-2">
-          <h1 className="text-2xl font-semibold text-foreground">
-            Upload Your Design
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Upload your design files and we&apos;ll analyze them for you
-          </p>
-        </div>
-
-        <FileUpload />
-      </div>
-    </main>
+    <div className="h-screen flex overflow-hidden bg-charcoal-900 text-foreground">
+      <Sidebar />
+      <UploadZone onAnalyze={analyzeDesign} />
+      <FeedbackPanel />
+    </div>
   )
 }
