@@ -8,7 +8,7 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
 export async function POST(request: Request) {
   try {
     // 1. Authenticate user
-    const supabase = createClient()
+    const supabase = await createClient()
     const { data: { user }, error: authError } = await supabase.auth.getUser()
     
     // During local dev, we might not want to perfectly block this if testing without auth
