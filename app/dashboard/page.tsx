@@ -29,7 +29,9 @@ export default function Page() {
       })
 
       if (!res.ok) {
-        throw new Error('Analysis failed')
+        const errorBody = await res.json().catch(() => ({}))
+        console.error('Analysis API error:', errorBody)
+        throw new Error(errorBody.error || `Analysis failed (HTTP ${res.status})`)
       }
 
       const data = await res.json()

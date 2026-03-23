@@ -1,17 +1,19 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { analyzeDesign } from '@/lib/analyzeDesign'
 import { generateVariants } from '@/lib/generateVariants'
 
 export async function POST(request: Request) {
+  console.log('Analyze route called with design_id request')
   try {
     const { design_id } = await request.json()
+    console.log('design_id received:', design_id)
 
     if (!design_id) {
       return NextResponse.json({ error: 'design_id is required' }, { status: 400 })
     }
 
-    // 1. Authenticate user
+    // 1. Authenticate user (anon client — reads session cookie)
     const supabase = await createClient()
     const { data: { user }, error: authError } = await supabase.auth.getUser()
     
@@ -19,12 +21,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // 2. Fetch the design from Supabase to get the Cloudinary URL
-    const { data: design, error: designError } = await supabase
+    // Service role client — bypasses RLS for all DB operations
+    const db = createServiceClient()
+
+    // 2. Fetch the design from Supabase to get the Cloudinary URL (service role)
+    const { data: design, error: designError } = await db
       .from('designs')
       .select('s3_url')
       .eq('id', design_id)
-      .eq('user_id', user.id) // Ensure the user actually owns this design
+      .eq('user_id', user.id)
       .single()
 
     if (designError || !design) {
@@ -42,7 +47,10 @@ export async function POST(request: Request) {
       feedback = await analyzeDesign(design.s3_url)
     } catch (aiError: any) {
       console.error('AI Analysis failed:', aiError)
-      return NextResponse.json({ error: 'Failed to analyze design with AI.' }, { status: 500 })
+      return NextResponse.json(
+        { error: `OpenAI error: ${aiError?.message ?? String(aiError)}`, stack: aiError?.stack },
+        { status: 500 }
+      )
     }
 
     // 4. Generate visual variants with Replicate using the issues found
@@ -54,8 +62,8 @@ export async function POST(request: Request) {
       // Non-fatal, proceed with analysis feedback
     }
 
-    // 5. Save the feedback results into the Supabase 'feedback' table
-    const { data: savedFeedback, error: feedbackError } = await supabase
+    // 5. Save the feedback results into the Supabase 'feedback' table (service role)
+    const { data: savedFeedback, error: feedbackError } = await db
       .from('feedback')
       .insert({
         design_id,
@@ -81,6 +89,9 @@ export async function POST(request: Request) {
 
   } catch (err: any) {
     console.error('Unhandled analysis error:', err)
-    return NextResponse.json({ error: 'Internal server error.' }, { status: 500 })
+    return NextResponse.json(
+      { error: err?.message ?? 'Internal server error', stack: err?.stack },
+      { status: 500 }
+    )
   }
 }

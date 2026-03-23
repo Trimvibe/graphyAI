@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { uploadDesign } from '@/lib/cloudinary'
 
 const ACCEPTED_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'application/pdf']
@@ -7,15 +7,16 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
 
 export async function POST(request: Request) {
   try {
-    // 1. Authenticate user
+    // 1. Authenticate user (anon client — reads session cookie)
     const supabase = await createClient()
     const { data: { user }, error: authError } = await supabase.auth.getUser()
     
-    // During local dev, we might not want to perfectly block this if testing without auth
-    // But per requirements, this should be tied to user_id.
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+
+    // Service role client — bypasses RLS for DB writes
+    const db = createServiceClient()
 
     // 2. Parse form data
     const formData = await request.formData()
@@ -55,12 +56,12 @@ export async function POST(request: Request) {
       )
     }
 
-    // 5. Save record to Supabase designs table
-    const { data: designData, error: dbError } = await supabase
+    // 5. Save record to Supabase designs table (service role bypasses RLS)
+    const { data: designData, error: dbError } = await db
       .from('designs')
       .insert({
         user_id: user.id,
-        s3_url: secureUrl, // Storing Cloudinary URL in the s3_url column as per schema
+        s3_url: secureUrl,
         filename: file.name
       })
       .select('id')
