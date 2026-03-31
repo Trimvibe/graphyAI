@@ -2,6 +2,13 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
+  // Skip auth checks for public paths — especially /auth/callback, which needs
+  // to run BEFORE a session exists (it's what creates the session).
+  const publicPaths = ['/login', '/auth/callback', '/_next', '/favicon.ico', '/api/auth']
+  if (publicPaths.some(p => request.nextUrl.pathname.startsWith(p))) {
+    return NextResponse.next()
+  }
+
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
