@@ -13,10 +13,10 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { icon: <Upload className="h-5 w-5" />, label: "Upload", href: "#", active: true },
-  { icon: <LayoutGrid className="h-5 w-5" />, label: "My Designs", href: "#" },
-  { icon: <Clock className="h-5 w-5" />, label: "Feedback History", href: "#" },
-  { icon: <Settings className="h-5 w-5" />, label: "Settings", href: "#" },
+  { icon: <Upload className="h-5 w-5" />, label: "Upload", href: "/dashboard", active: true },
+  { icon: <LayoutGrid className="h-5 w-5" />, label: "My Designs", href: "/dashboard/designs" },
+  { icon: <Clock className="h-5 w-5" />, label: "Feedback History", href: "/dashboard/history" },
+  { icon: <Settings className="h-5 w-5" />, label: "Settings", href: "/dashboard/settings" },
 ]
 
 export function Sidebar() {
