@@ -1,16 +1,13 @@
-export const config = {
-  api: {
-    bodyParser: {
-      sizeLimit: '10mb',
-    },
-  },
-}
-export const runtime = 'nodejs'
-export const maxDuration = 60
-
-
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
+
+export const runtime = 'nodejs'
+export const maxDuration = 60
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+}
 
 export async function POST(request: Request) {
   try {
@@ -43,7 +40,7 @@ export async function POST(request: Request) {
     const fileExt = file.name.split('.').pop()
     const fileName = `${user.id}/${Date.now()}.${fileExt}`
     const arrayBuffer = await file.arrayBuffer()
-    const buffer = Buffer.from(arrayBuffer)
+    const buffer = arrayBuffer
 
     const { error: uploadError } = await serviceClient.storage
       .from('designs')
