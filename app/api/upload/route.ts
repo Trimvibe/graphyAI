@@ -1,13 +1,9 @@
-import { NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
-import { uploadDesign } from '@/lib/cloudinary'
-
-const ACCEPTED_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'application/pdf']
-const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
+import { NextResponse } from 'next/server'
 
 export async function POST(request: Request) {
   try {
-    // 1. Authenticate user (anon client — reads session cookie)
+    // Get authenticated user
     const supabase = await createClient()
     const { data: { user }, error: authError } = await supabase.auth.getUser()
     
@@ -15,77 +11,57 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Service role client — bypasses RLS for DB writes
-    const db = createServiceClient()
-
-    // 2. Parse form data
+    // Parse uploaded file
     const formData = await request.formData()
-    const file = formData.get('file') as File | null
-
+    const file = formData.get('file') as File
     if (!file) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 })
     }
 
-    // 3. Validate file
-    if (!ACCEPTED_TYPES.includes(file.type)) {
-      return NextResponse.json(
-        { error: 'Invalid file type. Only PNG, JPG, and PDF are allowed.' },
-        { status: 400 }
-      )
+    // Validate file type and size
+    const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'application/pdf']
+    if (!allowedTypes.includes(file.type)) {
+      return NextResponse.json({ error: 'Invalid file type. PNG, JPG, PDF only.' }, { status: 400 })
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      return NextResponse.json({ error: 'File too large. Max 10MB.' }, { status: 400 })
     }
 
-    if (file.size > MAX_FILE_SIZE) {
-      return NextResponse.json(
-        { error: 'File size exceeds 10MB limit.' },
-        { status: 400 }
-      )
-    }
-
-    // 4. Convert to Buffer and upload to Cloudinary
+    // Upload to Supabase Storage
+    const serviceClient = await createServiceClient()
+    const fileExt = file.name.split('.').pop()
+    const fileName = `${user.id}/${Date.now()}.${fileExt}`
     const arrayBuffer = await file.arrayBuffer()
     const buffer = Buffer.from(arrayBuffer)
-    
-    let secureUrl: string
-    try {
-      secureUrl = await uploadDesign(buffer, file.name)
-    } catch (uploadError: any) {
-      console.error('Cloudinary upload err:', uploadError)
-      return NextResponse.json(
-        { error: 'Failed to upload to storage provider.' },
-        { status: 500 }
-      )
+
+    const { error: uploadError } = await serviceClient.storage
+      .from('designs')
+      .upload(fileName, buffer, { contentType: file.type, upsert: false })
+
+    if (uploadError) {
+      throw new Error(`Storage upload failed: ${uploadError.message}`)
     }
 
-    // 5. Save record to Supabase designs table (service role bypasses RLS)
-    const { data: designData, error: dbError } = await db
+    // Get public URL
+    const { data: { publicUrl } } = serviceClient.storage
       .from('designs')
-      .insert({
-        user_id: user.id,
-        s3_url: secureUrl,
-        filename: file.name
-      })
+      .getPublicUrl(fileName)
+
+    // Save to designs table
+    const { data: design, error: dbError } = await serviceClient
+      .from('designs')
+      .insert({ user_id: user.id, s3_url: publicUrl, filename: file.name })
       .select('id')
       .single()
 
-    if (dbError || !designData) {
-      console.error('Database insert err:', dbError)
-      return NextResponse.json(
-        { error: 'Failed to record design in database.' },
-        { status: 500 }
-      )
+    if (dbError || !design) {
+      throw new Error(`Database insert failed: ${dbError?.message}`)
     }
 
-    // 6. Return the design_id and URL
-    return NextResponse.json({ 
-      design_id: designData.id, 
-      url: secureUrl 
-    }, { status: 200 })
+    return NextResponse.json({ design_id: design.id, url: publicUrl })
 
-  } catch (err: any) {
-    console.error('Unhandled upload error:', err)
-    return NextResponse.json(
-      { error: 'Internal server error.' },
-      { status: 500 }
-    )
+  } catch (error: any) {
+    console.error('Upload error:', error.message)
+    return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
