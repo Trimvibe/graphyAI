@@ -1,3 +1,4 @@
+'use server'
 export const runtime = 'nodejs'
 
 import { GoogleGenerativeAI } from '@google/generative-ai'
@@ -23,18 +24,23 @@ export async function analyzeDesign(imageUrl: string): Promise<DesignFeedback> {
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
   const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
 
-  // Fetch image from Cloudinary and convert to base64 inline data
+  // Fetch image as base64 using fetch + arrayBuffer
   const imageResponse = await fetch(imageUrl)
-  if (!imageResponse.ok) {
-    throw new Error(`Failed to fetch image from URL: ${imageResponse.status}`)
+  if (!imageResponse.ok) throw new Error('Failed to fetch image from storage')
+  const arrayBuffer = await imageResponse.arrayBuffer()
+  
+  // Convert to base64 without Buffer
+  const bytes = new Uint8Array(arrayBuffer)
+  let binary = ''
+  const chunkSize = 8192
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize)
+    binary += String.fromCharCode(...chunk)
   }
-  const imageBuffer = await imageResponse.arrayBuffer()
-  const uint8Array = new Uint8Array(imageBuffer)
-  const base64Image = btoa(uint8Array.reduce((data, byte) => data + String.fromCharCode(byte), ''))
-
-  // Detect mime type from the Content-Type header, fallback to image/png
-  const contentType = imageResponse.headers.get('content-type') ?? 'image/png'
-  const mimeType = contentType.split(';')[0].trim() as 'image/png' | 'image/jpeg' | 'image/webp'
+  const base64Image = btoa(binary)
+  
+  // Detect mime type from URL
+  const mimeType = imageUrl.toLowerCase().includes('.png') ? 'image/png' : 'image/jpeg'
 
   const prompt = `You are an expert graphic designer and design critic. Analyze this design image and return ONLY a valid JSON object with NO markdown, no backticks, no explanation — just raw JSON in this exact structure:
 {
