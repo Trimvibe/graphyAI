@@ -1,3 +1,5 @@
+export const runtime = 'nodejs'
+
 import { GoogleGenerativeAI } from '@google/generative-ai'
 
 export interface DesignIssue {
@@ -27,7 +29,8 @@ export async function analyzeDesign(imageUrl: string): Promise<DesignFeedback> {
     throw new Error(`Failed to fetch image from URL: ${imageResponse.status}`)
   }
   const imageBuffer = await imageResponse.arrayBuffer()
-  const base64Image = Buffer.from(imageBuffer).toString('base64')
+  const uint8Array = new Uint8Array(imageBuffer)
+  const base64Image = btoa(uint8Array.reduce((data, byte) => data + String.fromCharCode(byte), ''))
 
   // Detect mime type from the Content-Type header, fallback to image/png
   const contentType = imageResponse.headers.get('content-type') ?? 'image/png'
