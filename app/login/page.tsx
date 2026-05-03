@@ -29,12 +29,10 @@ function LoginForm() {
     
     // In local development without email configured, the link will be logged in the Supabase terminal
     // In production, it sends an actual email.
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        // Redirect to callback route to exchange token for session before entering dashboard
-        emailRedirectTo: `${siteUrl}/auth/callback?next=/dashboard`,
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
       },
     })
 
