@@ -1,6 +1,3 @@
-'use server'
-export const runtime = 'nodejs'
-
 import { GoogleGenerativeAI } from '@google/generative-ai'
 
 export interface DesignIssue {
