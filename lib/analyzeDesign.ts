@@ -1,47 +1,33 @@
-import { GoogleGenerativeAI } from '@google/generative-ai'
+export const runtime = 'nodejs'
 
-export interface DesignIssue {
-  category: string
-  severity: 'critical' | 'warning' | 'suggestion'
-  description: string
-  fix: string
-}
+export async function analyzeDesign(imageUrl: string) {
+  const apiKey = process.env.GEMINI_API_KEY
+  if (!apiKey) throw new Error('GEMINI_API_KEY is not set')
 
-export interface DesignFeedback {
-  score: number
-  issues: DesignIssue[]
-  generated_images?: string[]
-}
-
-export async function analyzeDesign(imageUrl: string): Promise<DesignFeedback> {
-  if (!process.env.GEMINI_API_KEY) {
-    throw new Error('GEMINI_API_KEY is not set')
-  }
-
-  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
-  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
-
-  // Fetch image as base64 using fetch + arrayBuffer
+  // Fetch the image
   const imageResponse = await fetch(imageUrl)
-  if (!imageResponse.ok) throw new Error('Failed to fetch image from storage')
+  if (!imageResponse.ok) throw new Error('Failed to fetch image: ' + imageResponse.statusText)
+
   const arrayBuffer = await imageResponse.arrayBuffer()
-  
+
   // Convert to base64 without Buffer
   const bytes = new Uint8Array(arrayBuffer)
   let binary = ''
-  const chunkSize = 8192
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    const chunk = bytes.subarray(i, i + chunkSize)
-    binary += String.fromCharCode(...chunk)
+  for (let i = 0; i < bytes.length; i += 8192) {
+    const chunk = bytes.subarray(i, i + 8192)
+    binary += String.fromCharCode(...Array.from(chunk))
   }
   const base64Image = btoa(binary)
-  
-  // Detect mime type from URL
+
+  // Detect mime type
   const mimeType = imageUrl.toLowerCase().includes('.png') ? 'image/png' : 'image/jpeg'
 
-  const prompt = `You are an expert graphic designer and design critic. Analyze this design image and return ONLY a valid JSON object with NO markdown, no backticks, no explanation — just raw JSON in this exact structure:
+  const prompt = `You are a professional graphic designer with 15 years of experience. Analyze this design image carefully.
+
+Return ONLY a valid JSON object. No markdown, no backticks, no explanation. Just raw JSON:
 {
-  "score": <number 0-100 representing overall design quality>,
+  "score": <number>,
+  "summary": "<2 sentence overall assessment>",
   "issues": [
     {
       "category": "<e.g. Typography, Color, Spacing, Hierarchy, Contrast>",
@@ -50,26 +36,48 @@ export async function analyzeDesign(imageUrl: string): Promise<DesignFeedback> {
       "fix": "<exactly how to fix it>"
     }
   ]
-}
+}`
 
-Be specific, actionable, and professional. Return only JSON, nothing else.`
+  // Call Gemini REST API directly - no SDK
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            { text: prompt },
+            { inline_data: { mime_type: mimeType, data: base64Image } }
+          ]
+        }],
+        generationConfig: {
+          temperature: 0.4,
+          maxOutputTokens: 1024,
+        }
+      })
+    }
+  )
 
-  const result = await model.generateContent([
-    prompt,
-    { inlineData: { data: base64Image, mimeType } },
-  ])
+  if (!response.ok) {
+    const err = await response.text()
+    throw new Error('Gemini API error: ' + err)
+  }
 
-  const rawText = result.response.text().trim()
-  console.log('Gemini raw response:', rawText.slice(0, 300))
+  const data = await response.json()
+  const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
+  if (!rawText) throw new Error('Gemini returned empty response')
 
+  console.log('Gemini raw response:', rawText.substring(0, 200))
+
+  // Parse JSON - strip code fences if present
   try {
     return JSON.parse(rawText)
   } catch {
-    // Strip markdown code fences if Gemini wrapped the JSON
     const cleaned = rawText
       .replace(/^```json\s*/i, '')
       .replace(/^```\s*/i, '')
-      .replace(/```\s*$/i, '')
+      .replace(/\s*```$/i, '')
       .trim()
     return JSON.parse(cleaned)
   }
