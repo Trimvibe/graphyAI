@@ -1,53 +1,73 @@
-import Replicate from 'replicate'
 import type { DesignIssue } from '@/lib/analyzeDesign'
 
-const replicate = new Replicate({
-  auth: process.env.REPLICATE_API_TOKEN,
-})
-
-/**
- * Generates 3 variant designs using Replicate Flux model based on feedback issues.
- * @param originalImageUrl The URL of the original uploaded image (currently unused by flux-schnell text-to-image, but kept for future img2img support).
- * @param issues The list of categorized design issues to fix.
- * @returns Array of 3 generated WebP image URLs.
- */
 export async function generateVariants(originalImageUrl: string, issues: DesignIssue[]): Promise<string[]> {
   try {
-    // 1. Build an enhanced prompt describing the fixed graphic
-    let promptStr = 'Redesigned graphic with improved typography, better color contrast, fixed spacing. Professional, clean, modern.'
-    
-    // Optionally append some context from the actual issues if available
-    const criticalIssues = issues.filter(i => i.severity === 'critical' || i.severity === 'warning')
-    if (criticalIssues.length > 0) {
-      const fixes = criticalIssues.map(i => i.fix).join(', ')
-      // Ensure prompt doesn't get ridiculously long, just adding a bit of flavor
-      promptStr += ` specifically addressing: ${fixes}`
+    const apiToken = process.env.REPLICATE_API_TOKEN
+    if (!apiToken) {
+      console.warn('REPLICATE_API_TOKEN not set, skipping variant generation')
+      return []
     }
 
-    // 2. Call Replicate's black-forest-labs/flux-schnell model
-    // flux-schnell is extremely fast text-to-image
-    const output = await replicate.run(
-      'black-forest-labs/flux-schnell',
-      {
+    // Build prompt from issues
+    let prompt = 'Redesigned graphic with improved typography, better color contrast, fixed spacing. Professional, clean, modern.'
+    const criticalIssues = issues.filter(i => i.severity === 'critical' || i.severity === 'warning')
+    if (criticalIssues.length > 0) {
+      const fixes = criticalIssues.slice(0, 3).map(i => i.fix).join(', ')
+      prompt += ` Specifically: ${fixes}`
+    }
+
+    // Step 1: Create prediction via Replicate REST API
+    const createResponse = await fetch('https://api.replicate.com/v1/models/black-forest-labs/flux-schnell/predictions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiToken}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'wait=30'
+      },
+      body: JSON.stringify({
         input: {
-          prompt: promptStr,
+          prompt,
           num_outputs: 3,
           output_format: 'webp',
           output_quality: 80,
-          aspect_ratio: '1:1',
-        },
-      }
-    )
+          aspect_ratio: '1:1'
+        }
+      })
+    })
 
-    // Ensure output is casted properly (Replicate run returns unknown, but for image models it's usually string[])
-    // For flux-schnell returning multiple outputs, 'output' is an array of URL strings.
-    if (Array.isArray(output)) {
-      return output as string[]
+    if (!createResponse.ok) {
+      const err = await createResponse.text()
+      console.error('Replicate API error:', err)
+      return []
+    }
+
+    const prediction = await createResponse.json()
+
+    // If already succeeded (Prefer: wait=30 means it waits up to 30s)
+    if (prediction.status === 'succeeded' && Array.isArray(prediction.output)) {
+      return prediction.output as string[]
+    }
+
+    // Step 2: Poll for result if still processing
+    const predictionId = prediction.id
+    for (let i = 0; i < 30; i++) {
+      await new Promise(resolve => setTimeout(resolve, 2000))
+      const pollResponse = await fetch(`https://api.replicate.com/v1/predictions/${predictionId}`, {
+        headers: { 'Authorization': `Bearer ${apiToken}` }
+      })
+      const result = await pollResponse.json()
+      if (result.status === 'succeeded' && Array.isArray(result.output)) {
+        return result.output as string[]
+      }
+      if (result.status === 'failed') {
+        console.error('Replicate prediction failed:', result.error)
+        return []
+      }
     }
 
     return []
   } catch (error) {
-    console.error('Failed to generate variants with Replicate:', error)
-    return [] // Return empty array so the main flow doesn't completely crash if variant gen fails
+    console.error('generateVariants error:', error)
+    return []
   }
 }
